@@ -58,18 +58,18 @@ def _sel_stocks(returns, size):
 
     return selected_assets_df # must filter correctly; end result is WRONG!
 
-def _calculate_risk_stat(weights, returns):
+def _calculate_optimized_indicators(weights, returns):
     """
-    Calculate the risk statistic based on portfolio weights and returns' covariance.
+    Calculate the optimized indicators (momentum) of returns.
 
     Args:
         weights (array-like): Portfolio weights.
         returns (DataFrame): DataFrame containing returns data.
 
     Returns:
-        float: Calculated risk statistic.
+        float: Calculated momentum scores.
     """
-    return (weights @ returns.cov() @ weights * 252) ** 0.5
+    return
 
 def strategy_minRisk(data, t, size=30, window_size=500):
     """
@@ -98,7 +98,7 @@ def strategy_minRisk(data, t, size=30, window_size=500):
 
     # Perform optimization
     result = minimize(
-        _calculate_risk_stat,
+        _calculate_optimized_indicators,
         initial_weights,
         args=(returns_sel,),
         method='SLSQP',
