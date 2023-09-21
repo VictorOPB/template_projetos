@@ -8,7 +8,7 @@ from modules.initial_weights import get_uniform_noneg
 def _sel_stocks(returns, size):
     """
     Select top stocks based on stocks' momentum scores analyzed for 3 periods: 1-month momentum, 3-month and
-    6-month momentum, compounded with low volatility filtering. A 'low-volatility-momentum' strategy, per say.
+    6-month momentum, compounded with low volatility filtering. A 'low-volatility-momentum' strategy, that is.
 
     Args:
         returns (DataFrame): DataFrame containing returns data.
