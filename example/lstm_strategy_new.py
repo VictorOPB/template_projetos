@@ -145,6 +145,8 @@ def prepare_model_data(sel_stocks):
 
   # Finds maximum for log returns to normalize data
 
+  # Finds maximum for log returns to normalize data
+
   maxes = [i.drop(columns=['Target Date', 'Target of Stock']).max().max() for i in windowed_dfs.values()]
   max_scale = np.max(maxes)
 
@@ -155,6 +157,7 @@ def prepare_model_data(sel_stocks):
     'max_scale': max_scale,
   }
 
+# Return weights for mounting the stocks wallet
 # Return weights for mounting the stocks wallet
 
 def mount_wallet(sel_stocks, dfs_dict):
@@ -234,7 +237,7 @@ def df_to_windowed_df(dataframe, first_date_str, last_date_str, n=3):
 
   return ret_df
 
-# Helps separating data for trainning the model
+# Helps separating data for training the model
 
 def windowed_df_to_date_X_y(windowed_dataframe):
   df_as_np = windowed_dataframe.to_numpy()
@@ -299,14 +302,21 @@ def train_model(stock, dfs_dict):
   # Params for choosing best network
   num_dense_layers_list = [1, 2, 3]  # Number of Dense layers
   num_neurons_list = [4, 8, 16, 32]  # Number of neurons in every dense layer
+  # Params for choosing best network
+  num_dense_layers_list = [1, 2, 3]  # Number of Dense layers
+  num_neurons_list = [4, 8, 16, 32]  # Number of neurons in every dense layer
 
+  best_mse = float('inf')  # Best MSE initialization with infinity
+  best_combination = None  # Best combination of hyperparameters initialized with None
   best_mse = float('inf')  # Best MSE initialization with infinity
   best_combination = None  # Best combination of hyperparameters initialized with None
 
   # for num_dense_layers in num_dense_layers_list:
   #   for num_neurons in num_neurons_list:
   #     print(f"Experimenting with com {num_dense_layers} Dense layers and {num_neurons} neurons per layer")
+  #     print(f"Experimenting with com {num_dense_layers} Dense layers and {num_neurons} neurons per layer")
 
+  #     # Create model
   #     # Create model
   #     model = Sequential([layers.Input(shape=(60, 10)),
   #                         layers.LSTM(96)])
@@ -317,15 +327,19 @@ def train_model(stock, dfs_dict):
   #     model.add(layers.Dense(1))
 
   #     # Compiling the model
+  #     # Compiling the model
   #     optimizer = Adam(learning_rate=0.0001, epsilon=1e-8)
   #     model.compile(loss=Huber(delta=1.0), optimizer=optimizer, metrics=['mean_squared_error'])
 
   #     # Adding Early Stopping for avoiding overfitting
+  #     # Adding Early Stopping for avoiding overfitting
   #     early_stopping = EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True)
 
   #     # Train the model
+  #     # Train the model
   #     model.fit(scaled_X_train, scaled_y1_train, validation_data=(scaled_X_val, scaled_y1_val), epochs=100, callbacks=[early_stopping])
 
+  #     # Evaluate the model
   #     # Evaluate the model
   #     train_predictions = model.predict(scaled_X_train).flatten()
   #     mse = mean_squared_error(scaled_y1_train, train_predictions)
@@ -333,10 +347,14 @@ def train_model(stock, dfs_dict):
   #     print("\n")
 
   #     # Update the best combination if a better combination is found
+  #     # Update the best combination if a better combination is found
   #     if mse < best_mse:
   #         best_mse = mse
   #         best_combination = (num_dense_layers, num_neurons)
 
+  # # Print the best combination and its corresponding MSE
+  # print(f"Best combination: {best_combination}")
+  # print(f"Best MSE: {best_mse:.8f}")
   # # Print the best combination and its corresponding MSE
   # print(f"Best combination: {best_combination}")
   # print(f"Best MSE: {best_mse:.8f}")
@@ -353,6 +371,7 @@ def train_model(stock, dfs_dict):
                 optimizer=Adam(learning_rate=0.0001, epsilon=1e-8),
                 metrics=['mean_squared_error'])
 
+  # Add Early Stopping for avoiding overfitting
   # Add Early Stopping for avoiding overfitting
   early_stopping = EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True)
 
