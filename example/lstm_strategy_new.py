@@ -12,7 +12,7 @@ from tensorflow.keras import activations
 from tensorflow.keras.losses import Huber
 from tensorflow.keras.callbacks import EarlyStopping
 from sklearn.metrics import mean_squared_error
-
+import copy
 
 def initial_analysis():
     
@@ -111,10 +111,12 @@ def initial_analysis():
 
   return sel_stocks
 
+# This function returns the data
+
 def prepare_model_data(sel_stocks):
   
   dict_data = load_data()
-  df = dict_data['prices']
+  df = dict_data['prices'].astype('Float32')
   df = df[sel_stocks]
   log_df = np.log(df).diff().fillna(0)
 
@@ -147,15 +149,23 @@ def prepare_model_data(sel_stocks):
     'max_scale': max_scale,
   }
 
+# Return weight for mounting the stocks wallet
+
 def mount_wallet(sel_stocks, dfs_dict):
 
-  train_model(sel_stocks[0], dfs_dict)
+  predicted_log_returns = []
+  real_log_returns = []
 
-  # for stock in sel_stocks:
-  #   train_model(stock, dfs_dict)
+  for stock in sel_stocks:
+    predicted_log_return, real_log_return = train_model(stock, dfs_dict)
+    predicted_log_returns.append(predicted_log_return)
+    real_log_returns.append(real_log_return)
 
+  weights = np.array(predicted_log_returns)/np.sum(np.array(predicted_log_returns))
 
+  weights_df = pd.DataFrame({'Stock': sel_stocks, 'Weights': weights, 'Predicted Log-returns': predicted_log_returns , 'Real Log-returns': real_log_returns})
 
+  return weights_df
 
 # Private Functions
 
@@ -224,76 +234,57 @@ def windowed_df_to_date_X_y(windowed_dataframe):
   dates = df_as_np[:, 0]
 
   middle_matrix = df_as_np[:, 1:-1]
-  X = middle_matrix.reshape((len(dates), middle_matrix.shape[1], 1))
+  X = middle_matrix.reshape((len(dates), middle_matrix.shape[1], 1)).astype(np.float32)
 
-  Y = df_as_np[:, -1]
+  Y = df_as_np[:, -1].astype(np.float32)
 
-  return dates, X.astype(np.float32), Y.astype(np.float32)
+  return dates, np.float32(X), np.float32(Y)
 
 def train_model(stock, dfs_dict):
   max_scale = dfs_dict['max_scale']
-  stocks_df = dfs_dict['windowed_dfs']
+  stocks_df = copy.deepcopy(dfs_dict['windowed_dfs'])
   stocks_number = len(stocks_df.keys())
   dates, X1, y1 = windowed_df_to_date_X_y(stocks_df[stock])
 
+  del stocks_df[stock]
 
   q_80 = int(len(dates) * .8)
   q_90 = int(len(dates) * .9)
 
-  X_matrices = []
-  y_matrices = []
-  X_matrices_train = []
-  X_matrices_val = []
-  X_matrices_test = []
-  y_matrices_train = []
-  y_matrices_val = []
-  y_matrices_test = []
+  X_train = X1[:q_80]
+  y_train = y1[:q_80]
 
-  X_matrices.append(X1)
-  y_matrices.append(y1)
-  X_matrices_train.append(X1[:q_80])
-  X_matrices_val.append(X1[q_80:q_90])
-  X_matrices_test.append(X1[q_90:])
-  y_matrices_train.append(y1[:q_80])
-  y_matrices_val.append(y1[q_80:q_90])
-  y_matrices_test.append(y1[q_90:])
+  X_val = X1[q_80:q_90]
+  y_val = y1[q_80:q_90]
 
-  del stocks_df[stock]
+  X_test = X1[q_90:]
+  y_test = y1[q_90:]
 
   for stock in stocks_df:
     _, X, y = windowed_df_to_date_X_y(stocks_df[stock])
-    X_matrices.append(X)
-    y_matrices.append(y)
-    X_matrices_train.append(X[:q_80])
-    X_matrices_val.append(X[q_80:q_90])
-    X_matrices_test.append(X[q_90:])
-    y_matrices_train.append(y[:q_80])
-    y_matrices_val.append(y[q_80:q_90])
-    y_matrices_test.append(y[q_90:])
+    X_train = np.concatenate((X_train, X[:q_80]),axis=2)
+    y_train = np.concatenate((y_train, y[:q_80]))
+
+    X_val = np.concatenate((X_val, X[q_80:q_90]),axis=2)
+    y_val = np.concatenate((y_val, y[q_80:q_90]))
+
+    X_test = np.concatenate((X_test, X[q_90:]),axis=2)
+    y_test = np.concatenate((y_test, y[q_90:]))
 
   dates_train = dates[:q_80]
   dates_val = dates[q_80:q_90]
   dates_test = dates[q_90:]
 
-  X_train = np.concatenate(tuple(X_matrices_train),axis=2)
-  y_train = np.concatenate(tuple(y_matrices_train))
+  scaled_X_train = X_train / max_scale
+  scaled_y_train = y_train / max_scale
+  scaled_y1_train = y1[:q_80]
 
-  X_val = np.concatenate(tuple(X_matrices_val),axis=2)
-  y_val = np.concatenate(tuple(y_matrices_val))
+  scaled_X_val = X_val / max_scale
+  scaled_y1_val = y1[q_80:q_90] / max_scale
 
-  X_test = np.concatenate(tuple(X_matrices_test),axis=2)
-  y_test = np.concatenate(tuple(y_matrices_test))
-
-  len(X_val)
-
-  scaled_Xtrain = X_train / max_scale
-  scaled_y_train = y_train/ max_scale
-
-  scaled_Xval = X_val / max_scale
-  scaled_y1val = y_val[0] / max_scale
-
-  scaled_Xtest = X_test / max_scale
-  scaled_ytest = y_test / max_scale
+  scaled_X_test = X_test / max_scale
+  scaled_y_test = y_test / max_scale
+  scaled_y1_test = y1[q_90:] / max_scale
 
   # Parâmetros para experimentação
   num_dense_layers_list = [1, 2, 3]  # Número de camadas Dense
@@ -302,43 +293,43 @@ def train_model(stock, dfs_dict):
   best_mse = float('inf')  # Melhor MSE inicializado com infinito
   best_combination = None  # Melhor combinação de hiperparâmetros inicializada com None
 
-  for num_dense_layers in num_dense_layers_list:
-    for num_neurons in num_neurons_list:
-      print(f"Experimentando com {num_dense_layers} camadas Dense e {num_neurons} neurônios por camada")
+  # for num_dense_layers in num_dense_layers_list:
+  #   for num_neurons in num_neurons_list:
+  #     print(f"Experimentando com {num_dense_layers} camadas Dense e {num_neurons} neurônios por camada")
 
-      # Crie o modelo
-      model = Sequential([layers.Input(shape=(60, stocks_number)),
-                          layers.LSTM(96)])
+  #     # Crie o modelo
+  #     model = Sequential([layers.Input(shape=(60, 10)),
+  #                         layers.LSTM(96)])
       
-      for _ in range(num_dense_layers):
-          model.add(layers.Dense(num_neurons, activation=activations.elu))
+  #     for _ in range(num_dense_layers):
+  #         model.add(layers.Dense(num_neurons, activation=activations.elu))
 
-      model.add(layers.Dense(1))
+  #     model.add(layers.Dense(1))
 
-      # Compile o modelo
-      optimizer = Adam(learning_rate=0.0001, epsilon=1e-8)
-      model.compile(loss=Huber(delta=1.0), optimizer=optimizer, metrics=['mean_squared_error'])
+  #     # Compile o modelo
+  #     optimizer = Adam(learning_rate=0.0001, epsilon=1e-8)
+  #     model.compile(loss=Huber(delta=1.0), optimizer=optimizer, metrics=['mean_squared_error'])
 
-      # Adicione Early Stopping para evitar overfitting
-      early_stopping = EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True)
+  #     # Adicione Early Stopping para evitar overfitting
+  #     early_stopping = EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True)
 
-      # Treine o modelo
-      model.fit(scaled_Xtrain, scaled_y_train[0], validation_data=(scaled_Xval, scaled_y1val), epochs=100, callbacks=[early_stopping])
+  #     # Treine o modelo
+  #     model.fit(scaled_X_train, scaled_y1_train, validation_data=(scaled_X_val, scaled_y1_val), epochs=100, callbacks=[early_stopping])
 
-      # Avalie o modelo
-      train_predictions = model.predict(scaled_Xtrain).flatten()
-      mse = mean_squared_error(scaled_y_train[0], train_predictions)
-      print("MSE:", mse)
-      print("\n")
+  #     # Avalie o modelo
+  #     train_predictions = model.predict(scaled_X_train).flatten()
+  #     mse = mean_squared_error(scaled_y1_train, train_predictions)
+  #     print("MSE:", mse)
+  #     print("\n")
 
-      # Atualize a melhor combinação se uma combinação melhor for encontrada
-      if mse < best_mse:
-          best_mse = mse
-          best_combination = (num_dense_layers, num_neurons)
+  #     # Atualize a melhor combinação se uma combinação melhor for encontrada
+  #     if mse < best_mse:
+  #         best_mse = mse
+  #         best_combination = (num_dense_layers, num_neurons)
 
-  # Imprima a melhor combinação e seu respectivo MSE
-  print(f"Melhor combinação: {best_combination}")
-  print(f"Melhor MSE: {best_mse:.8f}")
+  # # Imprima a melhor combinação e seu respectivo MSE
+  # print(f"Melhor combinação: {best_combination}")
+  # print(f"Melhor MSE: {best_mse:.8f}")
 
   # Change params based on best combination
 
@@ -356,40 +347,42 @@ def train_model(stock, dfs_dict):
   early_stopping = EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True)
 
 
-  model.fit(scaled_Xtrain, scaled_y_train[0], validation_data=(scaled_Xval, scaled_y1val), epochs=100, callbacks=[early_stopping])
+  model.fit(scaled_X_train, scaled_y1_train, validation_data=(scaled_X_val, scaled_y1_val), epochs=100, callbacks=[early_stopping])
 
-  train_predictions = model.predict(scaled_Xtrain).flatten()
-  mse = mean_squared_error(scaled_y_train[0], train_predictions)
+  train_predictions = model.predict(scaled_X_train).flatten()
+  mse = mean_squared_error(scaled_y1_train, train_predictions)
   print("MSE:", mse)
 
   # Show plots
 
   np.reshape(train_predictions, np.shape(dates_train))
-  plt.plot(dates_train, scaled_y_train[0])
+  plt.plot(dates_train, scaled_y1_train)
   plt.plot(dates_train, train_predictions)
   plt.legend(['Training Observations', 'Training Predictions'])
 
-  val_predictions = model.predict(scaled_Xval).flatten()
+  val_predictions = model.predict(scaled_X_val).flatten()
 
   plt.plot(dates_val, val_predictions)
-  plt.plot(dates_val, scaled_y1val)
+  plt.plot(dates_val, scaled_y1_val)
   plt.legend(['Validation Predictions', 'Validation Observations'])
 
-  test_predictions = model.predict(scaled_Xtest).flatten()
+  test_predictions = model.predict(scaled_X_test).flatten()
 
   plt.plot(dates_test, test_predictions)
-  plt.plot(dates_test, scaled_ytest[0])
+  plt.plot(dates_test, scaled_y1_test)
   plt.legend(['Testing Predictions', 'Testing Observations'])
 
   plt.plot(dates_train, train_predictions)
-  plt.plot(dates_train, y_train[0])
+  plt.plot(dates_train, scaled_y1_train)
   plt.plot(dates_val, val_predictions)
-  plt.plot(dates_val, y_val[0])
+  plt.plot(dates_val, scaled_y1_val)
   plt.plot(dates_test, test_predictions)
-  plt.plot(dates_test, y_test[0])
+  plt.plot(dates_test, scaled_y1_test)
   plt.legend(['Training Predictions', 
               'Training Observations',
               'Validation Predictions', 
               'Validation Observations',
               'Testing Predictions', 
               'Testing Observations'])
+  
+  return (test_predictions[-1], y1[-1])
