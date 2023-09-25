@@ -89,13 +89,13 @@ def initial_analysis():
 
   # Define thresholds for low volatility and momentum based on volatilities array and momentum_scores_df
   low_volatility_threshold = 0.02
-  momentum_threshold = np.log(1.1) # 110% momentum score, in an attempt to guarantee nice stock volume with good upward prospect trend.
+  momentum_threshold = np.log(1.1) # 110% momentum score, an attempt to guarantee nice stock volume with good upward prospect trend.
 
   # Create boolean DataFrames for low volatility and momentum
   low_volatility_condition = vol_df < low_volatility_threshold
   momentum_condition = momentum_scores_df > momentum_threshold
 
-  # Combine the conditions to select best 15 assets 
+  # Combine the conditions to select best 10 assets 
   selected_assets_df = low_volatility_condition & momentum_condition
 
   best_assets = []
@@ -107,11 +107,13 @@ def initial_analysis():
   best_assets = sorted(best_assets, key=lambda x: x['occurrences'], reverse=True)
   sel_stocks = [i['name'] for i in best_assets[:10]]
 
+  # Print the maximum volatility
+
   print('Maximum volatility: ', np.max(volatilities))
 
   return sel_stocks
 
-# This function returns the data
+# This function creates the data shape for model
 
 def prepare_model_data(sel_stocks):
   
@@ -120,15 +122,17 @@ def prepare_model_data(sel_stocks):
   df = df[sel_stocks]
   log_df = np.log(df).diff().fillna(0)
 
-  plt.figure(1)
-  for stock in sel_stocks:
-    plt.plot(df.index, df[stock])
-  plt.legend(sel_stocks)
+  # plt.figure(1)
+  # for stock in sel_stocks:
+  #   plt.plot(df.index, df[stock])
+  # plt.legend(sel_stocks)
 
-  plt.figure(2)
-  for stock in sel_stocks:
-    plt.plot(log_df.index, log_df[stock])
-  plt.legend(sel_stocks)
+  # plt.figure(2)
+  # for stock in sel_stocks:
+  #   plt.plot(log_df.index, log_df[stock])
+  # plt.legend(sel_stocks)
+
+  # 60 days windowed dataframes
 
   num_of_past_dates = 60
   windowed_dfs = {}
@@ -138,6 +142,8 @@ def prepare_model_data(sel_stocks):
                             '2019-06-28',
                             n=num_of_past_dates)
     windowed_dfs[stock] = windowed_stock_df
+
+  # Finds maximum for log returns to normalize data
 
   maxes = [i.drop(columns=['Target Date', 'Target of Stock']).max().max() for i in windowed_dfs.values()]
   max_scale = np.max(maxes)
@@ -149,21 +155,21 @@ def prepare_model_data(sel_stocks):
     'max_scale': max_scale,
   }
 
-# Return weight for mounting the stocks wallet
+# Return weights for mounting the stocks wallet
 
 def mount_wallet(sel_stocks, dfs_dict):
 
-  predicted_log_returns = []
-  real_log_returns = []
+  predicted_returns = []
+  real_returns = []
 
   for stock in sel_stocks:
-    predicted_log_return, real_log_return = train_model(stock, dfs_dict)
-    predicted_log_returns.append(predicted_log_return)
-    real_log_returns.append(real_log_return)
+    predicted_return, real_return = train_model(stock, dfs_dict)
+    predicted_returns.append(predicted_return)
+    real_returns.append(real_return)
 
-  weights = np.array(predicted_log_returns)/np.sum(np.array(predicted_log_returns))
+  weights = abs(np.array(predicted_returns)/np.sum(np.array(predicted_returns)))
 
-  weights_df = pd.DataFrame({'Stock': sel_stocks, 'Weights': weights, 'Predicted Log-returns': predicted_log_returns , 'Real Log-returns': real_log_returns})
+  weights_df = pd.DataFrame({'Stock': sel_stocks, 'Weights': weights, 'Predicted Returns': predicted_returns , 'Real Returns': real_returns})
 
   return weights_df
 
@@ -174,7 +180,7 @@ def str_to_datetime(s):
   year, month, day = int(split[0]), int(split[1]), int(split[2])
   return datetime.datetime(year=year, month=month, day=day)
 
-#
+# Transform data in a 60-day windowed dataframe
 
 def df_to_windowed_df(dataframe, first_date_str, last_date_str, n=3):
   first_date = str_to_datetime(first_date_str)
@@ -228,6 +234,8 @@ def df_to_windowed_df(dataframe, first_date_str, last_date_str, n=3):
 
   return ret_df
 
+# Helps separating data for trainning the model
+
 def windowed_df_to_date_X_y(windowed_dataframe):
   df_as_np = windowed_dataframe.to_numpy()
 
@@ -247,6 +255,8 @@ def train_model(stock, dfs_dict):
   dates, X1, y1 = windowed_df_to_date_X_y(stocks_df[stock])
 
   del stocks_df[stock]
+
+  # Separating data in sets for training, validation and test
 
   q_80 = int(len(dates) * .8)
   q_90 = int(len(dates) * .9)
@@ -286,18 +296,18 @@ def train_model(stock, dfs_dict):
   scaled_y_test = y_test / max_scale
   scaled_y1_test = y1[q_90:] / max_scale
 
-  # Parâmetros para experimentação
-  num_dense_layers_list = [1, 2, 3]  # Número de camadas Dense
-  num_neurons_list = [4, 8, 16, 32]  # Número de neurônios em cada camada
+  # Params for choosing best network
+  num_dense_layers_list = [1, 2, 3]  # Number of Dense layers
+  num_neurons_list = [4, 8, 16, 32]  # Number of neurons in every dense layer
 
-  best_mse = float('inf')  # Melhor MSE inicializado com infinito
-  best_combination = None  # Melhor combinação de hiperparâmetros inicializada com None
+  best_mse = float('inf')  # Best MSE initialization with infinity
+  best_combination = None  # Best combination of hyperparameters initialized with None
 
   # for num_dense_layers in num_dense_layers_list:
   #   for num_neurons in num_neurons_list:
-  #     print(f"Experimentando com {num_dense_layers} camadas Dense e {num_neurons} neurônios por camada")
+  #     print(f"Experimenting with com {num_dense_layers} Dense layers and {num_neurons} neurons per layer")
 
-  #     # Crie o modelo
+  #     # Create model
   #     model = Sequential([layers.Input(shape=(60, 10)),
   #                         layers.LSTM(96)])
       
@@ -306,30 +316,30 @@ def train_model(stock, dfs_dict):
 
   #     model.add(layers.Dense(1))
 
-  #     # Compile o modelo
+  #     # Compiling the model
   #     optimizer = Adam(learning_rate=0.0001, epsilon=1e-8)
   #     model.compile(loss=Huber(delta=1.0), optimizer=optimizer, metrics=['mean_squared_error'])
 
-  #     # Adicione Early Stopping para evitar overfitting
+  #     # Adding Early Stopping for avoiding overfitting
   #     early_stopping = EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True)
 
-  #     # Treine o modelo
+  #     # Train the model
   #     model.fit(scaled_X_train, scaled_y1_train, validation_data=(scaled_X_val, scaled_y1_val), epochs=100, callbacks=[early_stopping])
 
-  #     # Avalie o modelo
+  #     # Evaluate the model
   #     train_predictions = model.predict(scaled_X_train).flatten()
   #     mse = mean_squared_error(scaled_y1_train, train_predictions)
   #     print("MSE:", mse)
   #     print("\n")
 
-  #     # Atualize a melhor combinação se uma combinação melhor for encontrada
+  #     # Update the best combination if a better combination is found
   #     if mse < best_mse:
   #         best_mse = mse
   #         best_combination = (num_dense_layers, num_neurons)
 
-  # # Imprima a melhor combinação e seu respectivo MSE
-  # print(f"Melhor combinação: {best_combination}")
-  # print(f"Melhor MSE: {best_mse:.8f}")
+  # # Print the best combination and its corresponding MSE
+  # print(f"Best combination: {best_combination}")
+  # print(f"Best MSE: {best_mse:.8f}")
 
   # Change params based on best combination
 
@@ -343,7 +353,7 @@ def train_model(stock, dfs_dict):
                 optimizer=Adam(learning_rate=0.0001, epsilon=1e-8),
                 metrics=['mean_squared_error'])
 
-  # Adicione Early Stopping para evitar overfitting
+  # Add Early Stopping for avoiding overfitting
   early_stopping = EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True)
 
 
@@ -356,22 +366,26 @@ def train_model(stock, dfs_dict):
   # Show plots
 
   np.reshape(train_predictions, np.shape(dates_train))
+  plt.figure()
   plt.plot(dates_train, scaled_y1_train)
   plt.plot(dates_train, train_predictions)
   plt.legend(['Training Observations', 'Training Predictions'])
 
   val_predictions = model.predict(scaled_X_val).flatten()
 
+  plt.figure()
   plt.plot(dates_val, val_predictions)
   plt.plot(dates_val, scaled_y1_val)
   plt.legend(['Validation Predictions', 'Validation Observations'])
 
   test_predictions = model.predict(scaled_X_test).flatten()
 
+  plt.figure()
   plt.plot(dates_test, test_predictions)
   plt.plot(dates_test, scaled_y1_test)
   plt.legend(['Testing Predictions', 'Testing Observations'])
 
+  plt.figure()
   plt.plot(dates_train, train_predictions)
   plt.plot(dates_train, scaled_y1_train)
   plt.plot(dates_val, val_predictions)
@@ -385,4 +399,9 @@ def train_model(stock, dfs_dict):
               'Testing Predictions', 
               'Testing Observations'])
   
-  return (test_predictions[-1], y1[-1])
+  # Returns the log return for 7 days ahead
+  
+  predicted_returns = np.exp(test_predictions[-1]) -1
+  real_returns = np.exp(y1[-1]) - 1
+
+  return (predicted_returns, real_returns)
