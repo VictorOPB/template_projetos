@@ -15,6 +15,15 @@ from sklearn.metrics import mean_squared_error
 import copy
 
 def initial_analysis():
+  """
+    Select top stocks based on stocks' momentum scores analyzed for 3 periods: 1-month momentum, 3-month and
+    6-month momentum, compounded with low volatility filtering. A 'low-volatility-momentum' strategy, that is.
+
+    Args: None
+
+    Returns:
+        Array: Selected stocks.
+    """
     
   dict_data = load_data()
   log_returns = np.log(dict_data['prices']).diff().fillna(0)
@@ -122,15 +131,15 @@ def prepare_model_data(sel_stocks):
   df = df[sel_stocks]
   log_df = np.log(df).diff().fillna(0)
 
-  # plt.figure(1)
-  # for stock in sel_stocks:
-  #   plt.plot(df.index, df[stock])
-  # plt.legend(sel_stocks)
+  plt.figure()
+  for stock in sel_stocks:
+    plt.plot(df.index, list(df[stock].values))
+  plt.legend(sel_stocks)
 
-  # plt.figure(2)
-  # for stock in sel_stocks:
-  #   plt.plot(log_df.index, log_df[stock])
-  # plt.legend(sel_stocks)
+  plt.figure()
+  for stock in sel_stocks:
+    plt.plot(log_df.index, list(log_df[stock].values))
+  plt.legend(sel_stocks)
 
   # 60 days windowed dataframes
 
@@ -145,8 +154,6 @@ def prepare_model_data(sel_stocks):
 
   # Finds maximum for log returns to normalize data
 
-  # Finds maximum for log returns to normalize data
-
   maxes = [i.drop(columns=['Target Date', 'Target of Stock']).max().max() for i in windowed_dfs.values()]
   max_scale = np.max(maxes)
 
@@ -157,7 +164,6 @@ def prepare_model_data(sel_stocks):
     'max_scale': max_scale,
   }
 
-# Return weights for mounting the stocks wallet
 # Return weights for mounting the stocks wallet
 
 def mount_wallet(sel_stocks, dfs_dict):
@@ -251,6 +257,57 @@ def windowed_df_to_date_X_y(windowed_dataframe):
 
   return dates, np.float32(X), np.float32(Y)
 
+# Choose the best number of Dense layers and neurons in each for the neural network
+
+def optimize_model(scaled_X_train, scaled_y_train, scaled_X_val, scaled_y_val):
+  # Params for choosing best network
+  num_dense_layers_list = [1, 2, 3]  # Number of Dense layers
+  num_neurons_list = [4, 8, 16, 32]  # Number of neurons in every dense layer
+
+  best_mse = float('inf')  # Best MSE initialization with infinity
+  best_combination = None  # Best combination of hyperparameters initialized with None
+
+  for num_dense_layers in num_dense_layers_list:
+      for num_neurons1 in num_neurons_list:
+          for num_neurons2 in [n for n in num_neurons_list if n <= num_neurons1]:  # Iterate over num_neurons2 <= num_neurons1
+              print(f"Experimenting with {num_dense_layers} Dense layers: First layer {num_neurons1} neurons, Second layer {num_neurons2} neurons")
+
+              # Create model
+              model = Sequential([layers.Input(shape=(60, 10)),
+                                  layers.LSTM(96)])
+
+              model.add(layers.Dense(num_neurons1, activation=activations.elu))
+
+              if num_dense_layers >= 2:
+                  model.add(layers.Dense(num_neurons2, activation=activations.elu))
+
+              model.add(layers.Dense(1))
+
+              # Compiling the model
+              optimizer = Adam(learning_rate=0.0001, epsilon=1e-10)
+              model.compile(loss=Huber(delta=1.0), optimizer=optimizer, metrics=['mean_squared_error'])
+
+              # Adding Early Stopping for avoiding overfitting
+              early_stopping = EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True)
+
+              # Train the model
+              model.fit(scaled_X_train, scaled_y_train, validation_data=(scaled_X_val, scaled_y_val), epochs=100, callbacks=[early_stopping], verbose=0)
+
+              # Evaluate the model
+              train_predictions = model.predict(scaled_X_train).flatten()
+              mse = mean_squared_error(scaled_y_train, train_predictions)
+              print("MSE:", mse)
+              print("\n")
+
+              # Update the best combination if a better combination is found
+              if mse < best_mse:
+                  best_mse = mse
+                  best_combination = (num_dense_layers, num_neurons1, num_neurons2)
+
+  return best_combination
+
+# Trains model based on best combination
+
 def train_model(stock, dfs_dict):
   max_scale = dfs_dict['max_scale']
   stocks_df = copy.deepcopy(dfs_dict['windowed_dfs'])
@@ -273,8 +330,15 @@ def train_model(stock, dfs_dict):
   X_test = X1[q_90:]
   y_test = y1[q_90:]
 
-  for stock in stocks_df:
-    _, X, y = windowed_df_to_date_X_y(stocks_df[stock])
+  dates_train = dates[:q_80]
+  dates_val = dates[q_80:q_90]
+  dates_test = dates[q_90:]
+
+  best_combinations = {}
+
+  # Gathering exogenous data:
+  for stock_name in stocks_df:
+    _, X, y = windowed_df_to_date_X_y(stocks_df[stock_name])
     X_train = np.concatenate((X_train, X[:q_80]),axis=2)
     y_train = np.concatenate((y_train, y[:q_80]))
 
@@ -284,143 +348,70 @@ def train_model(stock, dfs_dict):
     X_test = np.concatenate((X_test, X[q_90:]),axis=2)
     y_test = np.concatenate((y_test, y[q_90:]))
 
-  dates_train = dates[:q_80]
-  dates_val = dates[q_80:q_90]
-  dates_test = dates[q_90:]
-
   scaled_X_train = X_train / max_scale
-  scaled_y_train = y_train / max_scale
   scaled_y1_train = y1[:q_80]
 
   scaled_X_val = X_val / max_scale
   scaled_y1_val = y1[q_80:q_90] / max_scale
 
   scaled_X_test = X_test / max_scale
-  scaled_y_test = y_test / max_scale
   scaled_y1_test = y1[q_90:] / max_scale
 
-  # Params for choosing best network
-  num_dense_layers_list = [1, 2, 3]  # Number of Dense layers
-  num_neurons_list = [4, 8, 16, 32]  # Number of neurons in every dense layer
-  # Params for choosing best network
-  num_dense_layers_list = [1, 2, 3]  # Number of Dense layers
-  num_neurons_list = [4, 8, 16, 32]  # Number of neurons in every dense layer
+  # best_combination = optimize_model(scaled_X_train, scaled_y1_train, scaled_X_val, scaled_y1_val)
+  # best_combinations[stock] = best_combination
 
-  best_mse = float('inf')  # Best MSE initialization with infinity
-  best_combination = None  # Best combination of hyperparameters initialized with None
-  best_mse = float('inf')  # Best MSE initialization with infinity
-  best_combination = None  # Best combination of hyperparameters initialized with None
-
-  # for num_dense_layers in num_dense_layers_list:
-  #   for num_neurons in num_neurons_list:
-  #     print(f"Experimenting with com {num_dense_layers} Dense layers and {num_neurons} neurons per layer")
-  #     print(f"Experimenting with com {num_dense_layers} Dense layers and {num_neurons} neurons per layer")
-
-  #     # Create model
-  #     # Create model
-  #     model = Sequential([layers.Input(shape=(60, 10)),
-  #                         layers.LSTM(96)])
-      
-  #     for _ in range(num_dense_layers):
-  #         model.add(layers.Dense(num_neurons, activation=activations.elu))
-
-  #     model.add(layers.Dense(1))
-
-  #     # Compiling the model
-  #     # Compiling the model
-  #     optimizer = Adam(learning_rate=0.0001, epsilon=1e-8)
-  #     model.compile(loss=Huber(delta=1.0), optimizer=optimizer, metrics=['mean_squared_error'])
-
-  #     # Adding Early Stopping for avoiding overfitting
-  #     # Adding Early Stopping for avoiding overfitting
-  #     early_stopping = EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True)
-
-  #     # Train the model
-  #     # Train the model
-  #     model.fit(scaled_X_train, scaled_y1_train, validation_data=(scaled_X_val, scaled_y1_val), epochs=100, callbacks=[early_stopping])
-
-  #     # Evaluate the model
-  #     # Evaluate the model
-  #     train_predictions = model.predict(scaled_X_train).flatten()
-  #     mse = mean_squared_error(scaled_y1_train, train_predictions)
-  #     print("MSE:", mse)
-  #     print("\n")
-
-  #     # Update the best combination if a better combination is found
-  #     # Update the best combination if a better combination is found
-  #     if mse < best_mse:
-  #         best_mse = mse
-  #         best_combination = (num_dense_layers, num_neurons)
-
-  # # Print the best combination and its corresponding MSE
-  # print(f"Best combination: {best_combination}")
-  # print(f"Best MSE: {best_mse:.8f}")
-  # # Print the best combination and its corresponding MSE
-  # print(f"Best combination: {best_combination}")
-  # print(f"Best MSE: {best_mse:.8f}")
-
-  # Change params based on best combination
-
+  # After running optimization, the best combinations for each stock are:
+  best_combinations = {'DPZ': [1, 16, 4], 'WST': [3, 32, 8], 'ODFL': [1, 32, 32], 'MKTX': [1, 16, 16], 'TYL': [3, 8, 4],
+                    'AAPL': [1, 8, 8], 'CPRT': [2, 32, 8], 'MSCI': [3, 32, 16], 'EXR': [1, 32, 8], 'KR': [2, 32, 8]}
+  
+  # Create model
   model = Sequential([layers.Input(shape=(60, stocks_number)),
-                      layers.LSTM(96),
-                      layers.Dense(8, activation=activations.elu),
-                      layers.Dense(8, activation=activations.elu),
-                      layers.Dense(1)])
+                      layers.LSTM(96)])
+  
+  for _ in range(best_combinations[stock][0]):
+      model.add(layers.Dense(best_combinations[stock][1], activation=activations.elu))
+
+  if best_combinations[stock][0] >= 2:
+     model.add(layers.Dense(best_combinations[stock][2], activation=activations.elu))
+
+  model.add(layers.Dense(1))
 
   model.compile(loss=Huber(delta=1.0), 
-                optimizer=Adam(learning_rate=0.0001, epsilon=1e-8),
+                optimizer=Adam(learning_rate=0.0001, epsilon=1e-10),
                 metrics=['mean_squared_error'])
 
-  # Add Early Stopping for avoiding overfitting
-  # Add Early Stopping for avoiding overfitting
+  # Add Early Stopping to avoid overfitting
   early_stopping = EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True)
 
 
-  model.fit(scaled_X_train, scaled_y1_train, validation_data=(scaled_X_val, scaled_y1_val), epochs=100, callbacks=[early_stopping])
+  model.fit(scaled_X_train, scaled_y1_train, validation_data=(scaled_X_val, scaled_y1_val), epochs=100, callbacks=[early_stopping], verbose=0)
 
-  train_predictions = model.predict(scaled_X_train).flatten()
+  train_predictions = model.predict(scaled_X_train, verbose=0).flatten()
   mse = mean_squared_error(scaled_y1_train, train_predictions)
   print("MSE:", mse)
+  # print(f"'{stock}' stock best combination: {best_combinations[stock]}")
 
+  val_predictions = model.predict(scaled_X_val, verbose=0).flatten()
+  test_predictions = model.predict(scaled_X_test, verbose=0).flatten()
   # Show plots
-
-  np.reshape(train_predictions, np.shape(dates_train))
   plt.figure()
-  plt.plot(dates_train, scaled_y1_train)
-  plt.plot(dates_train, train_predictions)
-  plt.legend(['Training Observations', 'Training Predictions'])
-
-  val_predictions = model.predict(scaled_X_val).flatten()
-
-  plt.figure()
-  plt.plot(dates_val, val_predictions)
-  plt.plot(dates_val, scaled_y1_val)
-  plt.legend(['Validation Predictions', 'Validation Observations'])
-
-  test_predictions = model.predict(scaled_X_test).flatten()
-
-  plt.figure()
-  plt.plot(dates_test, test_predictions)
-  plt.plot(dates_test, scaled_y1_test)
-  plt.legend(['Testing Predictions', 'Testing Observations'])
-
-  plt.figure()
-  plt.plot(dates_train, train_predictions)
-  plt.plot(dates_train, scaled_y1_train)
-  plt.plot(dates_val, val_predictions)
-  plt.plot(dates_val, scaled_y1_val)
-  plt.plot(dates_test, test_predictions)
-  plt.plot(dates_test, scaled_y1_test)
+  plt.plot(dates_train, train_predictions * max_scale) # plotting denormalized data
+  plt.plot(dates_train, scaled_y1_train * max_scale)
+  plt.plot(dates_val, val_predictions * max_scale)
+  plt.plot(dates_val, scaled_y1_val * max_scale)
+  plt.plot(dates_test, test_predictions * max_scale)
+  plt.plot(dates_test, scaled_y1_test * max_scale)
   plt.legend(['Training Predictions', 
               'Training Observations',
               'Validation Predictions', 
               'Validation Observations',
               'Testing Predictions', 
               'Testing Observations'])
+  plt.title(f'Predictions of Stock {stock}')
   
-  # Returns the log return for 7 days ahead
-  
-  predicted_returns = np.exp(test_predictions[-1]) -1
+  # Calculate the returns 1 day ahead:
+
+  predicted_returns = np.exp(test_predictions[-1]) - 1
   real_returns = np.exp(y1[-1]) - 1
 
   return (predicted_returns, real_returns)
