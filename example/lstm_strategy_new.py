@@ -65,7 +65,7 @@ def initial_analysis():
   momentum_scores_df = weight_21*momentum_scores_21 + weight_63*momentum_scores_63 + weight_126*momentum_scores_126
   momentum_scores_df.fillna(0)
   vol_df.fillna(0)
-  column = 'TSLA'
+  column = 'KR' # Change here to evaluate frequencies of different stocks
   for period in momentum_periods:
     if period == 21:
       plt.figure()
@@ -122,10 +122,21 @@ def initial_analysis():
 
   return sel_stocks
 
-# This function creates the data shape for model
-
 def prepare_model_data(sel_stocks):
-  
+
+  """
+  This function creates the data shape for model
+
+  Args:
+    Array: selected stocks
+
+  Returns:
+    Dictionary: {
+      'param1': 60-day windowed dataframes of the selected stocks},
+      'param2': maximum scale for normalizing data
+    }
+  """
+
   dict_data = load_data()
   df = dict_data['prices'].astype('Float32')
   df = df[sel_stocks]
@@ -164,9 +175,21 @@ def prepare_model_data(sel_stocks):
     'max_scale': max_scale,
   }
 
-# Return weights for mounting the stocks wallet
-
 def mount_wallet(sel_stocks, dfs_dict):
+
+  """
+  This function returns weights for mounting the stocks wallet
+
+  Args:
+    Array: selected stocks
+    Dictionary: {
+      'param1': 60-windowed dataframes of the selected stocks},
+      'param2': maximum scale for normalizing data
+    }
+
+  Returns:
+    Dataframe: Wallet with weigths, predicted returns and real returns
+  """
 
   predicted_returns = []
   real_returns = []
@@ -176,7 +199,8 @@ def mount_wallet(sel_stocks, dfs_dict):
     predicted_returns.append(predicted_return)
     real_returns.append(real_return)
 
-  weights = abs(np.array(predicted_returns)/np.sum(np.array(predicted_returns)))
+  weights = abs(np.array([i if i > 0 else 0 for i in predicted_returns])/np.sum(np.array([i if i > 0 else 0 for i in predicted_returns])))
+  weights = np.around(weights, decimals=4)
 
   weights_df = pd.DataFrame({'Stock': sel_stocks, 'Weights': weights, 'Predicted Returns': predicted_returns , 'Real Returns': real_returns})
 
@@ -185,6 +209,17 @@ def mount_wallet(sel_stocks, dfs_dict):
 # Private Functions
 
 def str_to_datetime(s):
+
+  """
+  This transforms date in string into datetime format
+
+  Args:
+    String: date
+
+  Returns:
+    Datetime: date
+  """
+  
   split = s.split('-')
   year, month, day = int(split[0]), int(split[1]), int(split[2])
   return datetime.datetime(year=year, month=month, day=day)
@@ -192,6 +227,19 @@ def str_to_datetime(s):
 # Transform data in a 60-day windowed dataframe
 
 def df_to_windowed_df(dataframe, first_date_str, last_date_str, n=3):
+
+  """
+  Transform the stocks dataframes in 60-day windowed dataframes
+
+  Args:
+    Dataframe: stock dataframe
+    Datetime: initial date
+    Datetime: final date
+
+  Returns:
+    Dataframe: 60-day windowed dataframe
+  """
+
   first_date = str_to_datetime(first_date_str)
   last_date  = str_to_datetime(last_date_str)
 
@@ -246,6 +294,19 @@ def df_to_windowed_df(dataframe, first_date_str, last_date_str, n=3):
 # Helps separating data for training the model
 
 def windowed_df_to_date_X_y(windowed_dataframe):
+
+  """
+  Transform the stocks dataframes in 60-day windowed dataframes
+
+  Args:
+    Dataframe: 60-day windowed dataframe
+
+  Returns:
+    Array: index with dates
+    Array: momentum input for the network (60 log-returns)
+    Array: target value for the network
+  """
+
   df_as_np = windowed_dataframe.to_numpy()
 
   dates = df_as_np[:, 0]
@@ -257,9 +318,20 @@ def windowed_df_to_date_X_y(windowed_dataframe):
 
   return dates, np.float32(X), np.float32(Y)
 
-# Choose the best number of Dense layers and neurons in each for the neural network
-
 def optimize_model(scaled_X_train, scaled_y_train, scaled_X_val, scaled_y_val):
+  """
+  Choose the best number of Dense layers and neurons in each for the neural network
+
+  Args:
+    Array: train input
+    Array: train output
+    Array: validation input
+    Array: validation output
+
+  Returns:
+    Tuple: (number of dense layers, number of neurons in layer 1, number of neurons in other layers)
+  """
+
   # Params for choosing best network
   num_dense_layers_list = [1, 2, 3]  # Number of Dense layers
   num_neurons_list = [4, 8, 16, 32]  # Number of neurons in every dense layer
@@ -309,6 +381,19 @@ def optimize_model(scaled_X_train, scaled_y_train, scaled_X_val, scaled_y_val):
 # Trains model based on best combination
 
 def train_model(stock, dfs_dict):
+  """
+  Choose the best number of Dense layers and neurons in each for the neural network
+
+  Args:
+    String: stock
+    Dictionary: {
+      'param1': 60-windowed dataframes of the selected stocks},
+      'param2': maximum scale for normalizing data
+    }
+
+  Returns:
+    Tuple: (predicted returns, real returns)
+  """
   max_scale = dfs_dict['max_scale']
   stocks_df = copy.deepcopy(dfs_dict['windowed_dfs'])
   stocks_number = len(stocks_df.keys())
