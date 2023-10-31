@@ -14,18 +14,17 @@ from tensorflow.keras.callbacks import EarlyStopping
 from sklearn.metrics import mean_squared_error
 import copy
 
-def initial_analysis():
+def initial_analysis(dict_data, stdout = True):
   """
     Select top stocks based on stocks' momentum scores analyzed for 3 periods: 1-month momentum, 3-month and
-    6-month momentum, compounded with low volatility filtering. A 'low-volatility-momentum' strategy, that is.
+    6-month momentum, compounded with low volatility filtering. A 'low-volatility-momentum' strategy.
 
     Args: None
 
     Returns:
         Array: Selected stocks.
     """
-    
-  dict_data = load_data()
+  
   log_returns = np.log(dict_data['prices']).diff().fillna(0)
   
   volatility_window = 63  # Assuming daily data
@@ -66,35 +65,37 @@ def initial_analysis():
   momentum_scores_df.fillna(0)
   vol_df.fillna(0)
   column = 'KR' # Change here to evaluate frequencies of different stocks
-  for period in momentum_periods:
-    if period == 21:
-      plt.figure()
-      sns.histplot(momentum_scores_21[f'{column}'], bins=30, kde=True, color='blue', edgecolor='k')
-      plt.title(f"Distribution of '{column}' Stock {period}-Day Momentum Scores (Log Returns)")
-      plt.xlabel('Momentum Score')
-      plt.ylabel('Frequency')
-      plt.grid(True)
-    elif period == 63:
-      plt.figure()
-      sns.histplot(momentum_scores_63[f'{column}'], bins=30, kde=True, color='blue', edgecolor='k')
-      plt.title(f"Distribution of '{column}' Stock {period}-Day Momentum Scores (Log Returns)")
-      plt.xlabel('Momentum Score')
-      plt.ylabel('Frequency')
-      plt.grid(True)
-    elif period == 126:
-      plt.figure()
-      sns.histplot(momentum_scores_126[f'{column}'], bins=30, kde=True, color='blue', edgecolor='k')
-      plt.title(f"Distribution of '{column}' Stock {period}-Day Momentum Scores (Log Returns)")
-      plt.xlabel('Momentum Score')
-      plt.ylabel('Frequency')
-      plt.grid(True)
 
-  plt.figure()
-  sns.histplot(momentum_scores_df[f'{column}'], bins=30, kde=True, color='blue', edgecolor='k')
-  plt.title(f"Distribution of '{column}' Stock Weighted (.4, .3, .3) Momentum Scores (Log Returns)")
-  plt.xlabel('Momentum Score')
-  plt.ylabel('Frequency')
-  plt.grid(True)
+  if stdout:
+    for period in momentum_periods:
+      if period == 21:
+        plt.figure()
+        sns.histplot(momentum_scores_21[f'{column}'], bins=30, kde=True, color='blue', edgecolor='k')
+        plt.title(f"Distribution of '{column}' Stock {period}-Day Momentum Scores (Log Returns)")
+        plt.xlabel('Momentum Score')
+        plt.ylabel('Frequency')
+        plt.grid(True)
+      elif period == 63:
+        plt.figure()
+        sns.histplot(momentum_scores_63[f'{column}'], bins=30, kde=True, color='blue', edgecolor='k')
+        plt.title(f"Distribution of '{column}' Stock {period}-Day Momentum Scores (Log Returns)")
+        plt.xlabel('Momentum Score')
+        plt.ylabel('Frequency')
+        plt.grid(True)
+      elif period == 126:
+        plt.figure()
+        sns.histplot(momentum_scores_126[f'{column}'], bins=30, kde=True, color='blue', edgecolor='k')
+        plt.title(f"Distribution of '{column}' Stock {period}-Day Momentum Scores (Log Returns)")
+        plt.xlabel('Momentum Score')
+        plt.ylabel('Frequency')
+        plt.grid(True)
+
+    plt.figure()
+    sns.histplot(momentum_scores_df[f'{column}'], bins=30, kde=True, color='blue', edgecolor='k')
+    plt.title(f"Distribution of '{column}' Stock Weighted (.4, .3, .3) Momentum Scores (Log Returns)")
+    plt.xlabel('Momentum Score')
+    plt.ylabel('Frequency')
+    plt.grid(True)
 
   # Define thresholds for low volatility and momentum based on volatilities array and momentum_scores_df
   low_volatility_threshold = 0.02
@@ -117,12 +118,12 @@ def initial_analysis():
   sel_stocks = [i['name'] for i in best_assets[:10]]
 
   # Print the maximum volatility
-
-  print('Maximum volatility: ', np.max(volatilities))
+  if stdout:
+    print('Maximum volatility: ', np.max(volatilities))
 
   return sel_stocks
 
-def prepare_model_data(sel_stocks):
+def prepare_model_data(sel_stocks, t, stdout = True):
 
   """
   This function creates the data shape for model
@@ -132,7 +133,7 @@ def prepare_model_data(sel_stocks):
 
   Returns:
     Dictionary: {
-      'param1': 60-day windowed dataframes of the selected stocks},
+      'param1': 60-day windowed dataframes of the selected stocks,
       'param2': maximum scale for normalizing data
     }
   """
@@ -142,24 +143,27 @@ def prepare_model_data(sel_stocks):
   df = df[sel_stocks]
   log_df = np.log(df).diff().fillna(0)
 
-  plt.figure()
-  for stock in sel_stocks:
-    plt.plot(df.index, list(df[stock].values))
-  plt.legend(sel_stocks)
+  if stdout:
+    plt.figure()
+    for stock in sel_stocks:
+      plt.plot(df.index, list(df[stock].values))
+    plt.legend(sel_stocks)
 
-  plt.figure()
-  for stock in sel_stocks:
-    plt.plot(log_df.index, list(log_df[stock].values))
-  plt.legend(sel_stocks)
+    plt.figure()
+    for stock in sel_stocks:
+      plt.plot(log_df.index, list(log_df[stock].values))
+    plt.legend(sel_stocks)
 
   # 60 days windowed dataframes
 
   num_of_past_dates = 60
+  last_date_timestamp = dict_data['prices'].index[t]
+  initial_date_timestamp = dict_data['prices'].index[t-400]
   windowed_dfs = {}
   for stock in sel_stocks:
     windowed_stock_df = df_to_windowed_df(log_df[[stock]],
-                            '2017-12-29',
-                            '2019-06-28',
+                            initial_date_timestamp, #'2017-12-29', # t_i = 1656
+                            last_date_timestamp, #'2019-06-28', # t_f = 2031
                             n=num_of_past_dates)
     windowed_dfs[stock] = windowed_stock_df
 
@@ -168,14 +172,15 @@ def prepare_model_data(sel_stocks):
   maxes = [i.drop(columns=['Target Date', 'Target of Stock']).max().max() for i in windowed_dfs.values()]
   max_scale = np.max(maxes)
 
-  print('Maximum scale: ', max_scale)
+  if stdout:
+    print('Maximum scale: ', max_scale)
 
   return {
     'windowed_dfs': windowed_dfs,
     'max_scale': max_scale,
   }
 
-def mount_wallet(sel_stocks, dfs_dict):
+def mount_wallet(sel_stocks, dfs_dict, stdout=True):
 
   """
   This function returns weights for mounting the stocks wallet
@@ -183,19 +188,19 @@ def mount_wallet(sel_stocks, dfs_dict):
   Args:
     Array: selected stocks
     Dictionary: {
-      'param1': 60-windowed dataframes of the selected stocks},
+      'param1': 60-windowed dataframes of the selected stocks,
       'param2': maximum scale for normalizing data
     }
 
   Returns:
-    Dataframe: Wallet with weigths, predicted returns and real returns
+    Dataframe: Wallet with weights, predicted returns and real returns
   """
 
   predicted_returns = []
   real_returns = []
 
   for stock in sel_stocks:
-    predicted_return, real_return = train_model(stock, dfs_dict)
+    predicted_return, real_return = train_model(stock, dfs_dict, stdout)
     predicted_returns.append(predicted_return)
     real_returns.append(real_return)
 
@@ -226,22 +231,24 @@ def str_to_datetime(s):
 
 # Transform data in a 60-day windowed dataframe
 
-def df_to_windowed_df(dataframe, first_date_str, last_date_str, n=3):
+def df_to_windowed_df(dataframe, first_date, last_date, n=3):
 
   """
   Transform the stocks dataframes in 60-day windowed dataframes
 
   Args:
     Dataframe: stock dataframe
-    Datetime: initial date
-    Datetime: final date
+    String: initial date
+    String: final date
 
   Returns:
     Dataframe: 60-day windowed dataframe
   """
+  if isinstance(first_date, str):
+    first_date = str_to_datetime(first_date)
 
-  first_date = str_to_datetime(first_date_str)
-  last_date  = str_to_datetime(last_date_str)
+  if isinstance(last_date, str):
+    last_date = str_to_datetime(last_date)
 
   target_date = first_date
   
@@ -304,7 +311,7 @@ def windowed_df_to_date_X_y(windowed_dataframe):
   Returns:
     Array: index with dates
     Array: momentum input for the network (60 log-returns)
-    Array: target value for the network
+    Array: target value for the neural network
   """
 
   df_as_np = windowed_dataframe.to_numpy()
@@ -380,14 +387,14 @@ def optimize_model(scaled_X_train, scaled_y_train, scaled_X_val, scaled_y_val):
 
 # Trains model based on best combination
 
-def train_model(stock, dfs_dict):
+def train_model(stock, dfs_dict, stdout = True):
   """
   Choose the best number of Dense layers and neurons in each for the neural network
 
   Args:
     String: stock
     Dictionary: {
-      'param1': 60-windowed dataframes of the selected stocks},
+      'param1': 60-windowed dataframes of the selected stocks,
       'param2': maximum scale for normalizing data
     }
 
@@ -473,26 +480,30 @@ def train_model(stock, dfs_dict):
 
   train_predictions = model.predict(scaled_X_train, verbose=0).flatten()
   mse = mean_squared_error(scaled_y1_train, train_predictions)
-  print("MSE:", mse)
+
+  if stdout:
+    print("MSE:", mse)
   # print(f"'{stock}' stock best combination: {best_combinations[stock]}")
 
   val_predictions = model.predict(scaled_X_val, verbose=0).flatten()
   test_predictions = model.predict(scaled_X_test, verbose=0).flatten()
+
   # Show plots
-  plt.figure()
-  plt.plot(dates_train, train_predictions * max_scale) # plotting denormalized data
-  plt.plot(dates_train, scaled_y1_train * max_scale)
-  plt.plot(dates_val, val_predictions * max_scale)
-  plt.plot(dates_val, scaled_y1_val * max_scale)
-  plt.plot(dates_test, test_predictions * max_scale)
-  plt.plot(dates_test, scaled_y1_test * max_scale)
-  plt.legend(['Training Predictions', 
-              'Training Observations',
-              'Validation Predictions', 
-              'Validation Observations',
-              'Testing Predictions', 
-              'Testing Observations'])
-  plt.title(f'Predictions of Stock {stock}')
+  if stdout:
+    plt.figure()
+    plt.plot(dates_train, train_predictions * max_scale) # plotting denormalized data
+    plt.plot(dates_train, scaled_y1_train * max_scale)
+    plt.plot(dates_val, val_predictions * max_scale)
+    plt.plot(dates_val, scaled_y1_val * max_scale)
+    plt.plot(dates_test, test_predictions * max_scale)
+    plt.plot(dates_test, scaled_y1_test * max_scale)
+    plt.legend(['Training Predictions', 
+                'Training Observations',
+                'Validation Predictions', 
+                'Validation Observations',
+                'Testing Predictions', 
+                'Testing Observations'])
+    plt.title(f'Predictions of Stock {stock}')
   
   # Calculate the returns 1 day ahead:
 
@@ -500,3 +511,25 @@ def train_model(stock, dfs_dict):
   real_returns = np.exp(y1[-1]) - 1
 
   return (predicted_returns, real_returns)
+
+def lstm_strategy(dict_data, t, stdout = False):
+  """
+  Executes the proposed low-volatility-momentum strategy on the given historical stocks data.
+
+  Args:
+    Dictionary: {
+      'rate': daily rates compounded since February 2011 until March 2020,
+      'sp': sp&500 stocks from 1996 until 2023,
+      'prices': each stocks' prices dated from February 2011 until March 2023.
+    }
+    int: t, time value for calculation.
+    boolean: stdout, whether to plot the stock analysis made throughout data pre-processing or not.
+
+  Returns:
+    DataFrame: portfolio weights DataFrame.
+  """
+
+  sel_stocks = initial_analysis(dict_data, stdout)
+  dfs_dict = prepare_model_data(sel_stocks, t, stdout)
+  weights = mount_wallet(sel_stocks, dfs_dict, stdout)
+  return weights
