@@ -180,7 +180,7 @@ def prepare_model_data(sel_stocks, t, stdout = True):
     'max_scale': max_scale,
   }
 
-def mount_wallet(sel_stocks, dfs_dict, stdout=True):
+def mount_wallet(sel_stocks, dfs_dict, date, stdout=True):
 
   """
   This function returns weights for mounting the stocks wallet
@@ -208,6 +208,8 @@ def mount_wallet(sel_stocks, dfs_dict, stdout=True):
   weights = np.around(weights, decimals=4)
 
   weights_df = pd.DataFrame({'Stock': sel_stocks, 'Weights': weights, 'Predicted Returns': predicted_returns , 'Real Returns': real_returns})
+  index = [date]*10
+  weights_df.index = index
 
   return weights_df
 
@@ -531,5 +533,5 @@ def lstm_strategy(dict_data, t, stdout = False):
 
   sel_stocks = initial_analysis(dict_data, stdout)
   dfs_dict = prepare_model_data(sel_stocks, t, stdout)
-  weights = mount_wallet(sel_stocks, dfs_dict, stdout)
+  weights = mount_wallet(sel_stocks, dfs_dict, dict_data['prices'].index[t+1], stdout)
   return weights
