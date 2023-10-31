@@ -13,6 +13,7 @@ from tensorflow.keras.losses import Huber
 from tensorflow.keras.callbacks import EarlyStopping
 from sklearn.metrics import mean_squared_error
 import copy
+import pytz as tz
 
 def initial_analysis(dict_data, stdout = True):
   """
@@ -198,6 +199,7 @@ def mount_wallet(sel_stocks, dfs_dict, date, stdout=True):
 
   predicted_returns = []
   real_returns = []
+  timezone = tz.timezone('America/Sao_Paulo')
 
   for stock in sel_stocks:
     predicted_return, real_return = train_model(stock, dfs_dict, stdout)
@@ -210,6 +212,7 @@ def mount_wallet(sel_stocks, dfs_dict, date, stdout=True):
   weights_df = pd.DataFrame({'Stock': sel_stocks, 'Weights': weights, 'Predicted Returns': predicted_returns , 'Real Returns': real_returns})
   index = [date]*10
   weights_df.index = index
+  weights_df.index.tz_localize('UTC').tz_convert(timezone)
 
   return weights_df
 
