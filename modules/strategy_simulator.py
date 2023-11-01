@@ -29,10 +29,10 @@ def strategy_simulator(path, strategy, data_source, t, ret_port, weights_db, **k
 
     # Calculate and save portfolio returns
     prices = data_source['prices']
-    prices_1 = prices[weights.Stock].loc[prices.index[t - 1:t + 1]]
+    prices_1 = prices[weights.ticker].loc[prices.index[t - 1:t + 1]]
     returns_1 = np.log(prices_1).diff().tail(1).mean()
-    weights_index = weights.Weights
-    weights_index.index = weights.Stock
+    weights_index = weights.weights
+    weights_index.index = weights.ticker
     ret_port[prices.index[t]] = returns_1 @ weights_index
 
     aux = ret_port.reset_index()

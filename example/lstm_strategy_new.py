@@ -209,7 +209,7 @@ def mount_wallet(sel_stocks, dfs_dict, date, stdout=True):
   weights = abs(np.array([i if i > 0 else 0 for i in predicted_returns])/np.sum(np.array([i if i > 0 else 0 for i in predicted_returns])))
   weights = np.around(weights, decimals=4)
 
-  weights_df = pd.DataFrame({'Stock': sel_stocks, 'Weights': weights, 'Predicted Returns': predicted_returns , 'Real Returns': real_returns})
+  weights_df = pd.DataFrame({'ticker': sel_stocks, 'weights': weights, 'Predicted Returns': predicted_returns , 'Real Returns': real_returns})
   index = [date]*10
   weights_df.index = index
   weights_df.index.tz_localize('UTC').tz_convert(timezone)
